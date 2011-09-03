@@ -76,7 +76,11 @@ h1, h2, h3, h4 {
 
 h1 {
     text-align: center;
-    margin-top: 1em;
+    margin-top: .5em;
+    margin-bottom: 1em;
+    font-size: 2em;
+    background-image: url(../img/silver-back.jpg);
+    border: 1px solid silver;
 }
 
 .vcenter h1 {

@@ -1,0 +1,21 @@
+p.author {
+  font-weight: bold;
+  font-size: xx-large;
+  font-family: cursive;
+  text-align: center;
+  margin-top: 400px;
+}
+
+p.date {
+  font-weight: normal;
+  font-size: x-large;
+  font-family: monospace;
+  text-align: center;
+  margin-top: 50px;
+}
+
+.box {
+  border: solid 1px gray;
+  padding: 5px;
+  margin-right: 20px;
+}
