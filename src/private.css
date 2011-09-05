@@ -18,4 +18,6 @@ p.date {
   border: solid 1px gray;
   padding: 5px;
   margin-right: 20px;
+  background-color: #306;
+  color: #fff;
 }
