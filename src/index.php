@@ -20,6 +20,39 @@ if (file_exists($dir.'config.php')) {
     $dir = rtrim($dir, '/').'/';
 }
 
+// handle CLI mode
+if (PHP_SAPI === 'cli') {
+    if (!isset($_SERVER['argv'][1])) {
+        echo "USAGE: index.php <name of your slides html file> [<target file>]\n";
+        exit(1);
+    } elseif (!file_exists($_SERVER['argv'][1])) {
+        echo "File not found: ".$_SERVER['argv'][1]."\n";
+        exit(1);
+    }
+
+    $file = $_SERVER['argv'][1];
+    if (isset($_SERVER['argv'][2])) {
+        $targetfile = $_SERVER['argv'][2];
+    } else {
+        $targetfile = substr($file, 0, strrpos($file, '.')).'_compiled.html';
+    }
+
+    if (file_exists($targetfile)) {
+        echo "File $targetfile exists. Do you want to overwrite (y/n)? [y]: ";
+        $handle = fopen("php://stdin", "r");
+        $line = fgets($handle);
+        if (strtolower(trim($line)) !== 'y' && trim($line) !== '') {
+            echo "Aborting.\n";
+            exit(1);
+        }
+    }
+
+    $html = compactDeck(cleanDeck($file));
+    file_put_contents($targetfile, $html);
+    echo "Successfully saved slides to $targetfile\n";
+    exit(0);
+}
+
 // fetch slide deck
 if (isset($_GET['file'])) {
     $file = $dir . basename($_GET['file']);
@@ -34,21 +67,31 @@ if (!file_exists($file) || !is_file($file) || !is_readable($file)) {
     die;
 }
 
-// prepare slide deck content
-$file = file_get_contents($file);
-$file = preg_replace_callback('{(<pre[^>]+>)(.+?)(</pre>)}s', 'slippy_recode', $file);
+$html = cleanDeck($file);
 
+// handle downloads
 if (isset($_GET['download']) && $_GET['download']) {
-    downloadDeck($file);
-    die;
+    header('Content-Type: text/html');
+    header('Content-Disposition: attachment; filename="'.basename($file).'"');
+    echo compactDeck($html);
+    exit(0);
 }
 
-echo $file;
+echo $html;
+
+/**
+ * Prepare slide deck content
+ */
+function cleanDeck($file)
+{
+    $html = file_get_contents($file);
+    return preg_replace_callback('{(<pre[^>]+>)(.+?)(</pre>)}s', 'slippyRecode', $html);
+}
 
 /**
  * Strips the leading whitespace off <pre> tags and html encodes them
  */
-function slippy_recode($match)
+function slippyRecode($match)
 {
     $whitespace = preg_replace('#^\r?\n?([ \t]*).*#s', '$1', $match[2]);
     $output = preg_replace('/^'.preg_quote($whitespace, '/').'/m', '', $match[2]);
@@ -88,14 +131,13 @@ function fetchDecksData($decks)
 
 /**
  * Embeds all dependencies (js, css, images) into a slide deck file and serves it as a download
+ *
+ * @param string $html the content of the slides html file
  */
-function downloadDeck($file)
+function compactDeck($html)
 {
-    header('Content-Type: text/html');
-    header('Content-Disposition: attachment; filename="'.$_GET['file'].'"');
-    $baseUrl = ($_SERVER['SERVER_PORT'] === 443 ? 'https':'http') .'://'. $_SERVER['HTTP_HOST'].'/index.php';
     $doc = new DOMDocument();
-    @$doc->loadHTML($file);
+    @$doc->loadHTML($html);
     $xpath = new DOMXPath($doc);
     $jsFiles = $xpath->evaluate('//script[@type="text/javascript"][@src!=""]');
     foreach ($jsFiles as $js) {
@@ -112,17 +154,37 @@ function downloadDeck($file)
         $css->parentNode->replaceChild($node, $css);
     }
     $imgFiles = $xpath->evaluate('//img[@src!=""]');
-    $types = array(
+    $imgAttributes = $xpath->evaluate('//*[@data-background!=""]');
+    foreach ($imgFiles as $img) {
+        $source = $img->getAttribute('src');
+        if ($data = convertImage($source)) {
+            $img->setAttribute('src', $data);
+        }
+    }
+    foreach ($imgAttributes as $img) {
+        $source = $img->getAttribute('data-background');
+        if ($data = convertImage($source)) {
+            $img->setAttribute('data-background', $data);
+        }
+    }
+
+    return $doc->saveHTML();
+}
+
+function convertImage($url)
+{
+    static $types = array(
         'png' => 'image/png',
         'gif' => 'image/gif',
         'jpg' => 'image/jpeg',
         'jpeg' => 'image/jpeg',
     );
-    foreach ($imgFiles as $img) {
-        $source = $img->getAttribute('src');
+
+    if (PHP_SAPI !== 'cli') {
+        $baseUrl = ($_SERVER['SERVER_PORT'] === 443 ? 'https':'http') .'://'. $_SERVER['HTTP_HOST'].'/index.php';
         $parts = parse_url($baseUrl);
         $imgUrl = $parts['scheme'].'://'.$parts['host'];
-        if ($source{0} !== '/') {
+        if ($url{0} !== '/') {
             if (substr($parts['path'], -1) === '/') {
                 $imgUrl .= $parts['path'];
             } elseif (dirname($parts['path']) === '\\') {
@@ -131,10 +193,13 @@ function downloadDeck($file)
                 $imgUrl .= dirname($parts['path']);
             }
         }
-        $imgUrl .= $source;
-        $ext = strtolower(substr($source, strrpos($source, '.') + 1));
-        $data = 'data:'.$types[$ext].';base64,'.base64_encode(file_get_contents(str_replace(' ', '%20', $imgUrl)));
-        $img->setAttribute('src', $data);
+    } else {
+        // no image path rewriting on cli
+        $imgUrl = '';
     }
-    echo $doc->saveHTML();
+    $imgUrl .= $url;
+    $ext = strtolower(substr($url, strrpos($url, '.') + 1));
+    if (isset($types[$ext])) {
+        return 'data:'.$types[$ext].';base64,'.base64_encode(file_get_contents(str_replace(' ', '%20', $imgUrl)));
+    }
 }

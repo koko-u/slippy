@@ -17,7 +17,7 @@
     var slides, curSlide, options, inOverview,
         incrementals, curIncremental = 0,
         // methods
-        buildSlide, preparePreTags, executeCode, nextSlide, prevSlide, showSlide, setSlide, getCurrentSlide,
+        buildSlide, preparePreTags, executeCode, nextSlide, prevSlide, showSlide, setSlide, getCurrentSlide, updateSlideBackground,
         keyboardNav, antiScroll, urlChange, autoSize, clickNav, animInForward, animInRewind, animOutForward, animOutRewind,
         incrementalBefore, incrementalAfter;
 
@@ -55,7 +55,7 @@
         if ($(this).hasClass('eval')) {
             $(this)
                 .before('<a class="eval">Execute</a>').prev()
-                .data('src', content);
+                .data('src', $("<div/>").html(content).text());
         }
         match = content.match(/\r?\n?([ \t]*)/);
         if (match && match[1]) {
@@ -98,24 +98,36 @@
             $('.slideContent')
                 .height(slideH*0.95)
                 .css('margin', (slideH*0.05).toString() + "px auto 0");
-            $('.slideContent img').each(function() {
-                var ratio, imgWidth, imgHeight;
-                imgWidth = $.data(this, 'origWidth');
-                imgHeight = $.data(this, 'origHeight');
-                if (!imgWidth || !imgHeight) {
-                    imgWidth = $(this).width();
-                    imgHeight = $(this).height();
-                    $.data(this, 'origWidth', imgWidth);
-                    $.data(this, 'origHeight', imgHeight);
-                }
-                if (imgWidth >= imgHeight) {
-                    ratio = Math.min(imgWidth, options.baseWidth) / options.baseWidth;
-                    $(this).css('width',  Math.round(ratio * slideW * 0.9));
-                } else {
-                    ratio = Math.min(imgHeight, options.baseWidth / options.ratio) / (options.baseWidth / options.ratio);
-                    $(this).css('height',  Math.round(ratio * slideH * 0.9));
-                }
-            });
+            if (options.baseWidth) {
+                $('.slideContent img').each(function() {
+                    if ($(this).hasClass('noscale')) return;
+                    var ratio, imgWidth, imgHeight;
+                    imgWidth = $.data(this, 'origWidth');
+                    imgHeight = $.data(this, 'origHeight');
+                    if (!imgWidth || !imgHeight) {
+                        imgWidth = $(this).width();
+                        imgHeight = $(this).height();
+                        $.data(this, 'origWidth', imgWidth);
+                        $.data(this, 'origHeight', imgHeight);
+                    }
+                    if (imgWidth >= imgHeight) {
+                        ratio = Math.min(imgWidth, options.baseWidth) / options.baseWidth;
+                        var target = Math.round(ratio * slideW * 0.9);
+                        if (Math.abs(target - imgWidth) < options.imgScaleTrivial) {
+                            // avoid useless scaling that just makes the image look ugly
+                            target = imgWidth;
+                        }
+                        $(this).css('width',  target);
+                    } else {
+                        ratio = Math.min(imgHeight, options.baseWidth / options.ratio) / (options.baseWidth / options.ratio);
+                        var target = Math.round(ratio * slideH * 0.9);
+                        if (Math.abs(target - imgHeight) < options.imgScaleTrivial) {
+                            target = imgHeight;
+                        }
+                        $(this).css('height',  target);
+                    }
+                });
+            }
             $('.slideContent embed').each(function() {
                 var ratio, imgWidth, newWidth, $el, $parent, $object;
                 $el = $(this);
@@ -145,9 +157,9 @@
 
         resizeOverview = function() {
             $('.overviewWrapper')
-                .height(slideH * 0.13)
-                .width(slideW * 0.15)
-                .css('margin', slideH * 0.05);
+                .height(slideH * 0.2)
+                .width(slideW * 0.2)
+                .css('margin', slideH * 0.02);
         };
 
         centerVertically = function() {
@@ -246,13 +258,28 @@
                 // TODO show help;
                 break;
 
-            // handle delete, esc, tab for overview
-            case 9:
+            // handle delete, esc for overview
             case 27:
             case 46:
                 if ($.browser.msie && $.browser.version < 9) { break; }
                 if (inOverview) { break; }
                 slides.wrap($('<div/>').addClass('overviewWrapper'));
+
+                slides.each(function (idx, el) {
+                    var img;
+                    el = $(el);
+                    // mark wrapper as active for active slide
+                    if (el.hasClass('active')) {
+                        el.parent().addClass('active');
+                    }
+
+                    // add slide backgrounds to overview wrappers
+                    if (img = el.data('background')) {
+                        el.parent().css('background', '#000 url("' + img + '") center center no-repeat')
+                            .css('background-size', '100%');
+                    }
+                });
+
                 $('body').removeClass('slide-'+(curSlide+1)).addClass('overview');
                 slides.bind('click.slippyOverview', function (e) {
                     showSlide(slides.index(this));
@@ -413,6 +440,25 @@
         curSlide = num;
         slides.eq(curSlide).addClass('active');
         $('.slideDisplay').text((num+1)+'/'+slides.length);
+        updateSlideBackground();
+    };
+
+    updateSlideBackground = function() {
+        var img;
+        if (img = slides.eq(curSlide).data('background')) {
+            $('#slippy-slide-background').remove();
+            $('<div id="slippy-slide-background"></div>')
+                .prependTo('body')
+                .css('background-size', '100%')
+                .css('background-position', 'center center')
+                .css('background-image', 'url("' + img + '")')
+                .css('background-repeat', 'no-repeat')
+                .css('background-color', '#000')
+            $('body').addClass('slide-background');
+        } else {
+            $('#slippy-slide-background').remove();
+            $('body').removeClass('slide-background');
+        }
     };
 
     getCurrentSlide = function() {
@@ -427,59 +473,65 @@
     };
 
     $.fn.slippy = function(settings) {
-        var defaults = {
-            // animation duration for default anim callbacks, in milliseconds
-            animLen: 350,
-            // base width for proportional image scaling
-            baseWidth: 620,
-            // define animation callbacks, they receive a slide dom node to animate
-            animInForward: animInForward,
-            animInRewind: animInRewind,
-            animOutForward: animOutForward,
-            animOutRewind: animOutRewind,
-            // margin fraction, defaults to 0.15
-            margin: 0.15,
-            // width/height ratio of the slides, defaults to 1.3 (620x476)
-            ratio: 1.3,
-            incrementalBefore: null,
-            incrementalAfter: null
-        };
+        if (slides === undefined) {
+            var defaults = {
+                // animation duration for default anim callbacks, in milliseconds
+                animLen: 350,
+                // base width for proportional image scaling
+                baseWidth: 620,
+                // do not scale images by less then this to avoid unncessery scaling (in pixels)
+                imgScaleTrivial: 30,
+                // define animation callbacks, they receive a slide dom node to animate
+                animInForward: animInForward,
+                animInRewind: animInRewind,
+                animOutForward: animOutForward,
+                animOutRewind: animOutRewind,
+                // margin fraction, defaults to 0.15
+                margin: 0.15,
+                // width/height ratio of the slides, defaults to 1.3 (620x476)
+                ratio: 1.3,
+                incrementalBefore: null,
+                incrementalAfter: null
+            };
 
-        options = $.extend(defaults, settings);
+            options = $.extend(defaults, settings);
 
-        slides = this;
-        $('<div/>').addClass('slideDisplay').prependTo('body');
+            slides = this;
+            $('<div/>').addClass('slideDisplay').prependTo('body');
 
-        // wrap footer divs
-        $('.footer').wrapInner($('<div/>').addClass('footerContent'));
+            // wrap footer divs
+            $('.footer').wrapInner($('<div/>').addClass('footerContent'));
 
-        $('.incremental').each(incrementalBefore);
+            $('.incremental').each(incrementalBefore);
 
-        // prep slides
-        this.each(buildSlide);
-        this.last().addClass('lastslide');
-        $('.layout').remove();
+            // prep slides
+            this.each(buildSlide);
+            this.last().addClass('lastslide');
+            $('.layout').remove();
 
-        $(document)
-            .click(clickNav)
-            .keyup(keyboardNav);
+            $(document)
+                .click(clickNav)
+                .keyup(keyboardNav);
 
-        slides.touch({
-            swipeLeft: nextSlide,
-            swipeRight: prevSlide,
-            tap: clickNav
-        });
+            slides.touch({
+                swipeLeft: nextSlide,
+                swipeRight: prevSlide,
+                tap: clickNav
+            });
 
-        $(window)
-            .resize(autoSize.all)
-            .scroll(antiScroll);
+            $(window)
+                .resize(autoSize.all)
+                .scroll(antiScroll);
 
-        autoSize.all();
+            $('img').load(autoSize.all);
 
-        $.history.init(urlChange);
-        if (curSlide === undefined) {
-            curSlide = -1;
-            nextSlide();
+            autoSize.all();
+
+            $.history.init(urlChange);
+            if (curSlide === undefined) {
+                curSlide = -1;
+                nextSlide();
+            }
         }
 
         return {
